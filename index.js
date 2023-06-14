@@ -2,6 +2,8 @@ const express = require('express');
 const app = express()
 const cors = require('cors')
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
+const mg = require('nodemailer-mailgun-transport');
 require('dotenv').config()
 const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY)
 const port = process.env.PORT || 5000;
@@ -23,6 +25,46 @@ console.log(process.env.DB_PASS)
 app.use(cors())
 app.use(express.json())
 
+// const transport = nodemailer.createTransport({
+//   host: 'smtp.sendgrid.net',
+//   port:587,
+//   auth:{
+//     user: 'apikey',
+//     pass: process.env.SENDGRID_API_KEY, 
+//   }
+// });
+const auth = {
+  auth: {
+    api_key: process.env.EMAIL_PRIVET_Key,
+    domain: process.env.EMAIL_DOMAIL
+   }
+}
+
+const transporter = nodemailer.createTransport(mg(auth));
+
+// send payment confirmation email 
+const sendPaymentConfirmationEmail = payment =>{
+
+  transporter.sendMail({
+      from: 'anisurrahman01815001904@gmail.com',
+      to: 'anisurrahman01815001904@gmail.com',
+      subject: 'Your Order is confirmed. Enjoy the food soon. ',
+      text: 'hello', 
+      html: `
+      <div>
+      <h2>Payment confirm</h2>
+      <p>TransactionId: ${payment.transactionId}</p>
+      
+      </div>
+      `
+  })
+  .then(([res]) => {
+      console.log('Message delivered with code %s %s', res.statusCode, res.statusMessage);
+  })
+  .catch(err => {
+      console.log('Errors occurred, failed to deliver message');
+  });
+}
 const verifyJWT = (req,res,next)=>{
   const authorization = req.headers.authorization;
   if(!authorization){
@@ -86,7 +128,6 @@ async function run() {
  * */ 
 
  app.get('/users', verifyJWT,verifyAdmin,async(req,res)=>{
-
   const result = await usersCollection.find().toArray()
   res.send(result)
  })
@@ -204,6 +245,9 @@ async function run() {
 
     const query = {_id: {$in: payment.cartItems.map(id => new ObjectId(id))}}
     const deleteResult =  await cartCollection.deleteMany(query)
+    // send an email confirming email
+    sendPaymentConfirmationEmail(payment)
+    console.log(payment)
     res.send({insertResult,deleteResult})
   })
 
@@ -227,7 +271,7 @@ async function run() {
     })
    })
 
-   app.get('/order-stats', verifyJWT,verifyAdmin, async(req,res)=>{
+   app.get('/order-stats',verifyJWT,verifyAdmin,  async(req,res)=>{
     const pipeline = [
       {
         $lookup: {
@@ -244,7 +288,7 @@ async function run() {
         $group:{
           _id: '$menuItemsData.category',
           count: {$sum: 1},
-          totalPrice: {$sum: '$menuItemsData.price'}
+          total: {$sum: '$menuItemsData.price'}
 
         }
       },
